@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Message
@@ -54,6 +55,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +73,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.data.SyncUiState
 import com.example.model.TargetConfigEntity
+import com.example.ui.dialogs.ImportMessagesDialog
 import com.example.ui.dialogs.WorkflowGuideDialog
 import com.example.ui.theme.CreditGreen
 import com.example.ui.theme.CreditGreenBg
@@ -113,6 +116,10 @@ fun SettingsScreen(
     var newSmsTarget by remember { mutableStateOf("") }
     var newWhatsAppTarget by remember { mutableStateOf("") }
     var showWorkflowDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+
+    val isImporting by viewModel.isImporting.collectAsState()
+    val lastImportStats by viewModel.lastImportStats.collectAsState()
 
     Scaffold(
         topBar = {
@@ -345,9 +352,63 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // SECTION 3: Offline-First Cloud Sync
+            // SECTION 3: Historical Message Import
             Text(
-                text = "3. التخزين المحلي والمزامنة (Offline-First Sync)",
+                text = "3. استيراد جميع الرسائل والمحادثات السابقة",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "استيراد وقراءة كافة الرسائل السابقة (SMS & WhatsApp):",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "يقوم التطبيق بفحص صندوق الرسائل SMS لجميع الحوالات السابقة، أو استيراد ملفات وسجلات محادثات واتساب النصية، واستخراج المبالغ والعمولات والرصيد تلقائياً.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { showImportDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("btn_settings_open_import"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "فتح شاشة استيراد الرسائل السابقة",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // SECTION 4: Offline-First Cloud Sync
+            Text(
+                text = "4. التخزين المحلي والمزامنة (Offline-First Sync)",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -391,9 +452,9 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // SECTION 4: Workflow Document & Philosophy
+            // SECTION 5: Workflow Document & Philosophy
             Text(
-                text = "4. ملف وميثاق سير العمل (علاقة حب)",
+                text = "5. ملف وميثاق سير العمل (علاقة حب)",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -440,6 +501,15 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showImportDialog) {
+        ImportMessagesDialog(
+            viewModel = viewModel,
+            isImporting = isImporting,
+            lastStats = lastImportStats,
+            onDismiss = { showImportDialog = false }
+        )
     }
 
     if (showWorkflowDialog) {

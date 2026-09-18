@@ -9,7 +9,7 @@ data class ParsedRemittance(
     val type: TransactionType,
     val amount: Double,
     val commission: Double = 0.0,
-    val totalAmount: Double = amount + commission,
+    val totalAmount: Double = if (type == TransactionType.DEBIT && commission > 0) amount + commission else amount,
     val currency: String = "YER",
     val partyName: String = "",
     val referenceNumber: String = "",
@@ -19,20 +19,39 @@ data class ParsedRemittance(
 
 object RemittanceParser {
 
-    // قائمة الكلمات الدلالية للمدين (Debit)
-    private val DEBIT_KEYWORDS = listOf(
-        "خصم", "عليكم", "حسبنا عليكم", "قيد عليكم", "سحب",
-        "تحويل إلى", "تحويل الى", "دفع", "مدين", "سداد", "ارسال حوالة", "صرف"
+    // كلمات تدل بشكل قاطع على أن الرسالة هي إشعار مالي أو حوالة
+    private val REMITTANCE_INDICATORS = listOf(
+        "حوالة", "حواله", "قيد لكم", "قيد عليكم", "حسبنا لكم", "حسبنا عليكم",
+        "تم إيداع", "تم ايداع", "تم خصم", "تم تحويل", "تم إضافة", "تم اضافة",
+        "مبلغ", "عمولة", "عموله", "رصيدكم", "رصيدك", "الرصيد", "سند", "المرجع"
     )
 
-    // قائمة الكلمات الدلالية للدائن (Credit)
+    // كلمات دلالية للعمليات الدائنة (إضافة / لكم / وارد)
     private val CREDIT_KEYWORDS = listOf(
-        "إضافة", "اضافة", "لكم", "لك", "حسبنا لكم", "قيد لكم",
-        "تم إيداع", "تم ايداع", "استلام", "وارد", "دائن", "إيداع", "ايداع", "حوالة واردة", "قبض"
+        "حسبنا لكم", "قيد لكم", "تم إيداع", "تم ايداع", "تم إضافة", "تم اضافة",
+        "حوالة واردة", "حواله وارده", "استلام حوالة", "استلام حواله",
+        "إيداع", "ايداع", "إضافة", "اضافة", "وارد", "واردة", "وارده", "دائن",
+        "قبض", "تغذية", "استرداد", "لكم"
+    )
+
+    // كلمات دلالية للعمليات المدينة (خصم / عليكم / صادر)
+    private val DEBIT_KEYWORDS = listOf(
+        "حسبنا عليكم", "قيد عليكم", "تم خصم", "تم سحب", "تم تحويل",
+        "حوالة صادرة", "حواله صادره", "إرسال حوالة", "ارسال حواله", "ارسال حوالة",
+        "خصم", "سحب", "تحويل إلى", "تحويل الى", "دفع", "سداد", "مدين", "صرف",
+        "مشتريات", "صادرة", "صادره", "عليكم"
     )
 
     /**
-     * تحويل الأرقام العربية المشرقية والفواصل إلى أرقام غربية
+     * التحقق مما إذا كانت الرسالة تحتوي على مؤشرات حوالة أو عملية مالية
+     */
+    fun isRemittanceMessage(text: String): Boolean {
+        val normalized = normalizeArabicNumbers(text).lowercase()
+        return REMITTANCE_INDICATORS.any { normalized.contains(it.lowercase()) }
+    }
+
+    /**
+     * تحويل الأرقام العربية المشرقية (٠١٢٣٤٥٦٧٨٩) والفواصل العشرية (٫) إلى أرقام قياسية
      */
     fun normalizeArabicNumbers(input: String): String {
         val arabicDigits = charArrayOf('٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩')
@@ -40,12 +59,11 @@ object RemittanceParser {
         for (i in 0..9) {
             result = result.replace(arabicDigits[i], ('0' + i))
         }
-        // توحيد الفواصل العشرية
         return result.replace('٫', '.')
     }
 
     /**
-     * تحديد النوع المحاسبي بناءً على الكلمات المفتاحية
+     * تحديد النوع المحاسبي بناءً على الكلمات المفتاحية وأوزانها
      */
     fun detectTransactionType(text: String): TransactionType {
         val lowerText = text.lowercase()
@@ -55,124 +73,179 @@ object RemittanceParser {
 
         for (kw in CREDIT_KEYWORDS) {
             if (lowerText.contains(kw.lowercase())) {
-                creditScore += if (kw in listOf("حسبنا لكم", "قيد لكم", "تم إيداع", "لكم")) 2 else 1
+                val weight = when (kw) {
+                    "حسبنا لكم", "قيد لكم", "تم إيداع", "حوالة واردة", "استلام حوالة" -> 3
+                    "لكم", "إيداع", "ايداع", "تم إضافة" -> 2
+                    else -> 1
+                }
+                creditScore += weight
             }
         }
 
         for (kw in DEBIT_KEYWORDS) {
             if (lowerText.contains(kw.lowercase())) {
-                debitScore += if (kw in listOf("حسبنا عليكم", "قيد عليكم", "خصم", "عليكم")) 2 else 1
+                val weight = when (kw) {
+                    "حسبنا عليكم", "قيد عليكم", "تم خصم", "حوالة صادرة", "إرسال حوالة" -> 3
+                    "عليكم", "خصم", "تم تحويل", "تحويل إلى", "تحويل الى" -> 2
+                    else -> 1
+                }
+                debitScore += weight
             }
         }
 
-        return if (creditScore >= debitScore && creditScore > 0) {
+        return if (creditScore > debitScore) {
             TransactionType.CREDIT
         } else {
-            // الافتراضي في حال وجود كلمات خصم أو تعادل ترجيح المدين
             TransactionType.DEBIT
         }
     }
 
     /**
-     * تفكيك واستخراج بيانات الحوالة باستخدام Regex
+     * تفكيك واستخراج بيانات الحوالة بدقة تامة (المبلغ، العمولة، الرصيد، رقم الحوالة، المستفيد، العملة)
      */
     fun parse(rawText: String, senderOrChat: String, source: TransactionSource): ParsedRemittance {
         val normalized = normalizeArabicNumbers(rawText)
-
         val type = detectTransactionType(normalized)
 
-        // 1. استخراج رقم الحوالة / العملية
-        val refPattern = Pattern.compile(
-            """(?:رقم\s*الحوالة|حوالة\s*رقم|رقم\s*العملية|عملية\s*رقم|رقم\s*السند|سند\s*رقم|المرجع|مرجع|Ref|No|رقم)\s*[:#=\-]?\s*([A-Za-z0-9\-]+)""",
-            Pattern.CASE_INSENSITIVE
-        )
-        val refMatcher = refPattern.matcher(normalized)
+        // 1. استخراج رقم الحوالة / العملية / المرجع (Reference Number)
         var reference = ""
-        if (refMatcher.find()) {
-            reference = refMatcher.group(1)?.trim() ?: ""
+        val refPatterns = listOf(
+            Pattern.compile("""(?:رقم\s*الحوالة|حوالة\s*رقم|حواله\s*رقم|كود\s*الحوالة|رمز\s*الحوالة|رقم\s*العملية|عملية\s*رقم|رقم\s*السند|سند\s*رقم|المرجع|مرجع|Ref\s*No|Ref|No|رقم)\s*[:#=\-]?\s*([A-Za-z0-9\-]+)""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""(?:حوالة|حواله)\s+([0-9]{6,12})\b""", Pattern.CASE_INSENSITIVE)
+        )
+        for (pattern in refPatterns) {
+            val matcher = pattern.matcher(normalized)
+            if (matcher.find()) {
+                val group = matcher.group(1)?.trim() ?: ""
+                if (group.isNotBlank() && !group.equals("مبلغ", ignoreCase = true) && !group.equals("ريال", ignoreCase = true)) {
+                    reference = group
+                    break
+                }
+            }
         }
         if (reference.isBlank()) {
-            // محاولة استخراج كود رقمي من 6 أرقام فأكثر
+            // محاولة التقاط كود رقمي عام من 6 إلى 12 رقماً إذا لم يكن مسبوقاً بمبلغ أو رصيد
             val generalNumberPattern = Pattern.compile("""\b(\d{6,12})\b""")
             val genMatcher = generalNumberPattern.matcher(normalized)
-            if (genMatcher.find()) {
-                reference = genMatcher.group(1)?.trim() ?: ""
-            }
-        }
-
-        // 2. استخراج العمولة
-        val commissionPattern = Pattern.compile(
-            """(?:عمولة|العمولة|أجور|اجور|رسوم|الرسوم)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)""",
-            Pattern.CASE_INSENSITIVE
-        )
-        val commMatcher = commissionPattern.matcher(normalized)
-        var commission = 0.0
-        if (commMatcher.find()) {
-            val commStr = commMatcher.group(1)?.replace(",", "") ?: "0"
-            commission = commStr.toDoubleOrNull() ?: 0.0
-        }
-
-        // 3. استخراج الرصيد المتبقي
-        val balancePattern = Pattern.compile(
-            """(?:رصيدكم|الرصيد|رصيدك|المتبقي)(?:\s*(?:الحالي|المتبقي))?\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)""",
-            Pattern.CASE_INSENSITIVE
-        )
-        val balMatcher = balancePattern.matcher(normalized)
-        var balance: Double? = null
-        if (balMatcher.find()) {
-            val balStr = balMatcher.group(1)?.replace(",", "") ?: ""
-            balance = balStr.toDoubleOrNull()
-        }
-
-        // 4. استخراج المبلغ والعملة
-        val amountPattern = Pattern.compile(
-            """(?:مبلغ|المبلغ|مبلغا\s*وقدره|بقيمة|تم\s*خصم|تم\s*تحويل|تم\s*إيداع|تم\s*ايداع|تم\s*إضافة|تم\s*اضافة|إضافة|اضافة|إيداع|ايداع|حوالة|عليكم|لكم)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)\s*([A-Za-z\u0600-\u06FF]{2,10})?""",
-            Pattern.CASE_INSENSITIVE
-        )
-        val amtMatcher = amountPattern.matcher(normalized)
-        var amount = 0.0
-        var currency = "YER"
-        if (amtMatcher.find()) {
-            val amtStr = amtMatcher.group(1)?.replace(",", "") ?: "0"
-            amount = amtStr.toDoubleOrNull() ?: 0.0
-            val curGroup = amtMatcher.group(2)?.trim()
-            if (!curGroup.isNullOrBlank() && !curGroup.contains("ريال") && curGroup.length <= 5) {
-                currency = curGroup
-            } else if (curGroup?.contains("ريال") == true || normalized.contains("ريال") || normalized.contains("ر.ي")) {
-                currency = if (normalized.contains("سعودي") || normalized.contains("SAR")) "SAR" else "YER"
-            } else if (normalized.contains("دولار") || normalized.contains("USD") || normalized.contains("$")) {
-                currency = "USD"
-            }
-        } else {
-            // محاولة التقاط أكبر رقم مالي إذا لم يتم العثور على الكلمة التمهيدية
-            val standaloneAmount = Pattern.compile("""\b([0-9]{3,}(?:,[0-9]{3})*(?:\.[0-9]+)?)\b""")
-            val stMatcher = standaloneAmount.matcher(normalized)
-            val refNum = reference.toDoubleOrNull()
-            while (stMatcher.find()) {
-                val candidateStr = stMatcher.group(1)?.replace(",", "") ?: "0"
-                val candidate = candidateStr.toDoubleOrNull() ?: 0.0
-                // استبعاد أرقام الحوالات أو الأرقام المطابقة للرصيد والعمولة
-                if (candidate != balance && candidate != commission && candidate != refNum && candidate > amount) {
-                    amount = candidate
+            while (genMatcher.find()) {
+                val candidate = genMatcher.group(1)?.trim() ?: ""
+                if (candidate.isNotBlank()) {
+                    reference = candidate
+                    break
                 }
             }
         }
 
-        // 5. استخراج اسم الطرف الآخر (المستفيد / المحول / العميل)
-        val partyPattern = Pattern.compile(
-            """(?:للمستفيد|المستفيد|إلى|الى|من|المحول|الطرف\s*الآخر|العميل|المودع)\s*[:#=\-]?\s*([\u0600-\u06FFA-Za-z\s]{3,35})(?=[,\n\r.\-;]|رقم|مبلغ|رصيد|$)""",
-            Pattern.CASE_INSENSITIVE
+        // 2. استخراج العمولة / أجور التحويل (Commission / Fee)
+        var commission = 0.0
+        val commissionPatterns = listOf(
+            Pattern.compile("""(?:عمولة\s*التحويل|عمولة\s*الحوالة|عمولة\s*الإرسال|عمولة\s*الارسال|عمولة\s*الحواله|أجور\s*التحويل|اجور\s*التحويل|أجور\s*الإرسال|اجور\s*الارسال|أجور\s*الحوالة|اجور\s*الحوالة|أجور\s*الحواله|اجور\s*الحواله|رسوم\s*التحويل|رسوم\s*الحوالة|العمولة|العموله|عمولة|عموله|أجور|اجور|الرسوم|رسوم)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""\+?\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:أجور|اجور|عمولة|عموله|رسوم)""", Pattern.CASE_INSENSITIVE)
         )
-        val partyMatcher = partyPattern.matcher(normalized)
-        var partyName = ""
-        if (partyMatcher.find()) {
-            partyName = partyMatcher.group(1)?.trim()?.replace("\n", " ") ?: ""
+        for (p in commissionPatterns) {
+            val commMatcher = p.matcher(normalized)
+            if (commMatcher.find()) {
+                val commStr = commMatcher.group(1)?.replace(",", "") ?: "0"
+                val parsedComm = commStr.toDoubleOrNull() ?: 0.0
+                if (parsedComm > 0) {
+                    commission = parsedComm
+                    break
+                }
+            }
         }
+
+        // 3. استخراج الرصيد المتبقي / الإجمالي (Remaining / Running / Total Balance)
+        var balance: Double? = null
+        val balancePatterns = listOf(
+            Pattern.compile("""(?:الرصيد\s*الإجمالي|الرصيد\s*الاجمالي|إجمالي\s*الرصيد|اجمالي\s*الرصيد|الرصيد\s*بعد\s*العملية|الرصيد\s*بعد\s*التحويل|الرصيد\s*الحالي|رصيدك\s*الحالي|رصيدكم\s*الحالي|الرصيد\s*المتاح|رصيدك\s*المتاح|رصيدكم\s*المتاح|الرصيد\s*المتبقي|رصيدك\s*المتبقي|رصيدكم\s*المتبقي|الرصيد\s*الكلي|رصيد\s*الحساب|رصيدكم|رصيدك|الرصيد|رصيد|balance|avail\s*bal)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""([0-9,]+(?:\.[0-9]+)?)\s*(?:ريال|ر\.ي|YER|SAR|USD)?\s*(?:الرصيد\s*المتبقي|رصيدك\s*الحالي|الرصيد)""", Pattern.CASE_INSENSITIVE)
+        )
+        for (p in balancePatterns) {
+            val balMatcher = p.matcher(normalized)
+            if (balMatcher.find()) {
+                val balStr = balMatcher.group(1)?.replace(",", "") ?: ""
+                val candidateBal = balStr.toDoubleOrNull()
+                if (candidateBal != null && candidateBal != commission) {
+                    balance = candidateBal
+                    break
+                }
+            }
+        }
+
+        // 4. استخراج المبلغ الصافي والعملة (Amount & Currency)
+        var amount = 0.0
+        var currency = "YER"
+
+        val amountPatterns = listOf(
+            Pattern.compile("""(?:مبلغ\s*الحوالة|مبلغ\s*الحواله|مبلغ\s*التحويل|المبلغ\s*الصافي|مبلغ|المبلغ|مبلغا\s*وقدره|مبلغاً\s*وقدره|بقيمة|قيمة|قيد\s*لكم\s*مبلغ|قيد\s*عليكم\s*مبلغ|حسبنا\s*لكم\s*مبلغ|حسبنا\s*عليكم\s*مبلغ|تم\s*خصم\s*مبلغ|تم\s*خصم|تم\s*إيداع\s*مبلغ|تم\s*ايداع\s*مبلغ|تم\s*إيداع|تم\s*ايداع|تم\s*إضافة\s*مبلغ|تم\s*اضافة\s*مبلغ|تم\s*إضافة|تم\s*اضافة|تم\s*تحويل\s*مبلغ|تم\s*تحويل|استلام\s*حوالة|ارسال\s*حوالة|إرسال\s*حوالة|لكم\s*مبلغ|عليكم\s*مبلغ|لكم|عليكم)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)\s*([A-Za-z\u0600-\u06FF]{2,10})?""", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("""(?:حوالة|حواله)\s*[:#=\-]?\s*([0-9,]+(?:\.[0-9]+)?)\s*([A-Za-z\u0600-\u06FF]{2,10})?""", Pattern.CASE_INSENSITIVE)
+        )
+
+        for (p in amountPatterns) {
+            val amtMatcher = p.matcher(normalized)
+            if (amtMatcher.find()) {
+                val amtStr = amtMatcher.group(1)?.replace(",", "") ?: "0"
+                val parsedAmt = amtStr.toDoubleOrNull() ?: 0.0
+                // تأكد أن الرقم ليس هو الرصيد أو العمولة أو رقم الحوالة
+                val refDouble = reference.toDoubleOrNull()
+                if (parsedAmt > 0 && parsedAmt != balance && parsedAmt != commission && parsedAmt != refDouble) {
+                    amount = parsedAmt
+                    val curGroup = amtMatcher.group(2)?.trim()
+                    if (!curGroup.isNullOrBlank()) {
+                        currency = extractCurrency(curGroup, normalized)
+                    }
+                    break
+                }
+            }
+        }
+
+        // في حال لم يتم التقاط المبلغ بالكلمات الصريحة، ابحث عن الأرقام المستقلة
+        if (amount <= 0.0) {
+            val standaloneRegex = Pattern.compile("""\b([0-9]{3,}(?:,[0-9]{3})*(?:\.[0-9]+)?)\b""")
+            val stMatcher = standaloneRegex.matcher(normalized)
+            val refDouble = reference.toDoubleOrNull()
+            val candidates = mutableListOf<Double>()
+            while (stMatcher.find()) {
+                val candidateStr = stMatcher.group(1)?.replace(",", "") ?: "0"
+                val candidate = candidateStr.toDoubleOrNull() ?: 0.0
+                if (candidate > 0 && candidate != balance && candidate != commission && candidate != refDouble) {
+                    candidates.add(candidate)
+                }
+            }
+            if (candidates.isNotEmpty()) {
+                // إذا كان هناك رصيد، المبلغ عادة يكون أصغر من الرصيد التراكمي
+                amount = candidates.first()
+            }
+        }
+
+        // استخراج العملة العامة إن لم تكن محددة
+        currency = extractCurrency("", normalized)
+
+        // 5. استخراج اسم الطرف الآخر (المستفيد / المحول / العميل / الطرف المقابل)
+        var partyName = ""
+        val partyPatterns = listOf(
+            Pattern.compile("""(?:للمستفيد|المستفيد|إلى\s*المستفيد|الى\s*المستفيد|المحول\s*له|إلى|الى|من\s*المحول|من\s*العميل|من|المحول|المرسل|المودع|الطرف\s*الآخر|العميل|باسم|بإسم|حساب)\s*[:#=\-]?\s*([\u0600-\u06FFA-Za-z\s]{3,35})(?=[,\n\r.\-;]|رقم|مبلغ|عمولة|رصيد|حوالة|$)""", Pattern.CASE_INSENSITIVE)
+        )
+        for (p in partyPatterns) {
+            val partyMatcher = p.matcher(normalized)
+            if (partyMatcher.find()) {
+                val candidate = partyMatcher.group(1)?.trim()?.replace("\n", " ") ?: ""
+                if (candidate.length >= 3 && !candidate.equals("غير محدد", ignoreCase = true)) {
+                    partyName = candidate
+                    break
+                }
+            }
+        }
+
         if (partyName.isBlank()) {
             partyName = if (type == TransactionType.CREDIT) "محول غير محدد" else "مستفيد غير محدد"
         }
 
-        val totalAmount = if (commission > 0) amount + commission else amount
+        // حساب المبلغ الإجمالي
+        val totalAmount = when (type) {
+            TransactionType.DEBIT -> if (commission > 0) amount + commission else amount
+            TransactionType.CREDIT -> amount
+        }
 
         return ParsedRemittance(
             type = type,
@@ -183,8 +256,19 @@ object RemittanceParser {
             partyName = partyName,
             referenceNumber = reference,
             remainingBalance = balance,
-            notes = "معالجة تلقائية من $senderOrChat"
+            notes = "معالجة من $senderOrChat"
         )
+    }
+
+    private fun extractCurrency(currencyHint: String, fullText: String): String {
+        val combined = "$currencyHint $fullText".uppercase()
+        return when {
+            combined.contains("سعودي") || combined.contains("SAR") || combined.contains("ر.س") -> "SAR"
+            combined.contains("دولار") || combined.contains("USD") || combined.contains("$") -> "USD"
+            combined.contains("درهم") || combined.contains("AED") -> "AED"
+            combined.contains("يمني") || combined.contains("YER") || combined.contains("ر.ي") || combined.contains("ريال") -> "YER"
+            else -> "YER"
+        }
     }
 
     /**
@@ -194,7 +278,8 @@ object RemittanceParser {
         parsed: ParsedRemittance,
         rawMessage: String,
         senderOrChat: String,
-        source: TransactionSource
+        source: TransactionSource,
+        timestamp: Long = System.currentTimeMillis()
     ): TransactionEntity {
         return TransactionEntity(
             type = parsed.type,
@@ -209,7 +294,7 @@ object RemittanceParser {
             remainingBalance = parsed.remainingBalance,
             notes = parsed.notes,
             rawMessage = rawMessage,
-            timestamp = System.currentTimeMillis()
+            timestamp = timestamp
         )
     }
 }

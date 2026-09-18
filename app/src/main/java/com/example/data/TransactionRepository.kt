@@ -45,8 +45,22 @@ class TransactionRepository(
                 // Already recorded
                 return false
             }
+        } else {
+            // Check for duplicate by amount, type, sender within 1 minute
+            val duplicate = transactionDao.findDuplicate(
+                amount = transaction.amount,
+                type = transaction.type,
+                senderOrChat = transaction.senderOrChat,
+                timestamp = transaction.timestamp
+            )
+            if (duplicate != null) {
+                return false
+            }
         }
         transactionDao.insert(transaction)
+        try {
+            syncEngine.performSync()
+        } catch (_: Exception) {}
         return true
     }
 

@@ -43,6 +43,23 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE referenceNumber = :ref AND referenceNumber != '' LIMIT 1")
     suspend fun findByReference(ref: String): TransactionEntity?
 
+    @Query("""
+        SELECT * FROM transactions 
+        WHERE isDeleted = 0 
+        AND amount = :amount 
+        AND type = :type 
+        AND senderOrChat = :senderOrChat 
+        AND ABS(timestamp - :timestamp) < :windowMs 
+        LIMIT 1
+    """)
+    suspend fun findDuplicate(
+        amount: Double,
+        type: TransactionType,
+        senderOrChat: String,
+        timestamp: Long,
+        windowMs: Long = 60000L
+    ): TransactionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: TransactionEntity): Long
 

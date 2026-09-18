@@ -27,12 +27,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -49,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +73,7 @@ import com.example.model.TransactionSource
 import com.example.model.TransactionType
 import com.example.ui.components.LedgerSummaryCard
 import com.example.ui.components.TransactionItemCard
+import com.example.ui.dialogs.ImportMessagesDialog
 import com.example.ui.dialogs.ManualEntryDialog
 import com.example.ui.dialogs.SimulateMessageDialog
 import com.example.ui.dialogs.TransactionDetailDialog
@@ -94,7 +99,11 @@ fun LedgerScreen(
     var viewingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
     var showSimulateDialog by remember { mutableStateOf(false) }
     var showWorkflowDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
     var deleteCandidateId by remember { mutableStateOf<Long?>(null) }
+
+    val isImporting by viewModel.isImporting.collectAsState()
+    val lastImportStats by viewModel.lastImportStats.collectAsState()
 
     Scaffold(
         topBar = {
@@ -140,6 +149,18 @@ fun LedgerScreen(
                             imageVector = Icons.Default.Favorite,
                             contentDescription = "ملف سير العمل (علاقة حب)",
                             tint = DebitRed
+                        )
+                    }
+
+                    // Import historical messages button
+                    IconButton(
+                        onClick = { showImportDialog = true },
+                        modifier = Modifier.testTag("btn_open_import")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDownload,
+                            contentDescription = "استيراد الرسائل السابقة",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -385,11 +406,21 @@ fun LedgerScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "يمكنك إضافة حركة يدوياً عبر زر '+ إدخال يدوي'، أو تجربة زر 'اختبار رسالة' بأعلى الشاشة لمعاينة قراءة رسائل الحوالات فورياً.",
+                            text = "يمكنك استيراد كافة الرسائل السابقة من هاتفك دفعة واحدة، أو إضافة حركة يدوياً عبر زر '+ إدخال يدوي'.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = { showImportDialog = true },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.testTag("btn_empty_import")
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("استيراد جميع الحوالات السابقة من الهاتف", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             } else {
@@ -477,6 +508,16 @@ fun LedgerScreen(
     if (showWorkflowDialog) {
         WorkflowGuideDialog(
             onDismiss = { showWorkflowDialog = false }
+        )
+    }
+
+    // Import Messages Dialog
+    if (showImportDialog) {
+        ImportMessagesDialog(
+            viewModel = viewModel,
+            isImporting = isImporting,
+            lastStats = lastImportStats,
+            onDismiss = { showImportDialog = false }
         )
     }
 

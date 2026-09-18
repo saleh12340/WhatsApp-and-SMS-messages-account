@@ -18,7 +18,7 @@ class RemittanceParserTest {
         assertEquals(TransactionType.CREDIT, parsed.type)
         assertEquals(150000.0, parsed.amount, 0.01)
         assertEquals(1000.0, parsed.commission, 0.01)
-        assertEquals(151000.0, parsed.totalAmount, 0.01)
+        assertEquals(150000.0, parsed.totalAmount, 0.01)
         assertEquals("78945612", parsed.referenceNumber)
         assertEquals(1450000.0, parsed.remainingBalance ?: 0.0, 0.01)
         assertTrue(parsed.partyName.contains("سالم"))

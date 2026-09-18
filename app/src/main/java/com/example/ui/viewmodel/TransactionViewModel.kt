@@ -1,11 +1,16 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.RemittanceLedgerApp
 import com.example.data.SyncUiState
 import com.example.data.TransactionRepository
+import com.example.importer.ImportStats
+import com.example.importer.SmsImporter
+import com.example.importer.WhatsAppChatImporter
 import com.example.model.LedgerSummary
 import com.example.model.TargetConfigEntity
 import com.example.model.TransactionEntity
@@ -63,6 +68,12 @@ class TransactionViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
+
+    private val _lastImportStats = MutableStateFlow<ImportStats?>(null)
+    val lastImportStats: StateFlow<ImportStats?> = _lastImportStats.asStateFlow()
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -155,6 +166,62 @@ class TransactionViewModel(
             val entity = RemittanceParser.toEntity(parsed, text, sender, source)
             val saved = repository.saveAutomaticTransaction(entity)
             onComplete(saved)
+        }
+    }
+
+    fun clearLastImportStats() {
+        _lastImportStats.value = null
+    }
+
+    /**
+     * استيراد جميع الرسائل السابقة من صندوق الوارد (SMS Inbox)
+     */
+    fun importHistoricalSms(
+        context: Context,
+        targetSenderOnly: Boolean = false,
+        onComplete: (ImportStats) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            val stats = SmsImporter.importHistoricalSms(context, repository, targetSenderOnly)
+            _isImporting.value = false
+            _lastImportStats.value = stats
+            onComplete(stats)
+        }
+    }
+
+    /**
+     * استيراد محادثة واتساب كاملة من ملف نصي (تصدير الدردشة .txt)
+     */
+    fun importWhatsAppChatFile(
+        context: Context,
+        uri: Uri,
+        defaultSenderName: String = "محادثة واتساب",
+        onComplete: (ImportStats) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            val stats = WhatsAppChatImporter.importFromUri(context, uri, repository, defaultSenderName)
+            _isImporting.value = false
+            _lastImportStats.value = stats
+            onComplete(stats)
+        }
+    }
+
+    /**
+     * استيراد محادثة واتساب من نص مكتوب أو منسوخ
+     */
+    fun importWhatsAppChatText(
+        chatText: String,
+        senderName: String = "محادثة واتساب",
+        onComplete: (ImportStats) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            val stats = WhatsAppChatImporter.importFromText(chatText, repository, senderName)
+            _isImporting.value = false
+            _lastImportStats.value = stats
+            onComplete(stats)
         }
     }
 
