@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -71,6 +72,7 @@ import com.example.ui.components.TransactionItemCard
 import com.example.ui.dialogs.ManualEntryDialog
 import com.example.ui.dialogs.SimulateMessageDialog
 import com.example.ui.dialogs.TransactionDetailDialog
+import com.example.ui.dialogs.WorkflowGuideDialog
 import com.example.ui.theme.CreditGreen
 import com.example.ui.theme.DebitRed
 import com.example.ui.viewmodel.TransactionViewModel
@@ -91,6 +93,7 @@ fun LedgerScreen(
     var editingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
     var viewingTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
     var showSimulateDialog by remember { mutableStateOf(false) }
+    var showWorkflowDialog by remember { mutableStateOf(false) }
     var deleteCandidateId by remember { mutableStateOf<Long?>(null) }
 
     Scaffold(
@@ -128,6 +131,18 @@ fun LedgerScreen(
                     }
                 },
                 actions = {
+                    // Workflow guide button (سير العمل وعلاقة حب)
+                    IconButton(
+                        onClick = { showWorkflowDialog = true },
+                        modifier = Modifier.testTag("btn_open_workflow")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "ملف سير العمل (علاقة حب)",
+                            tint = DebitRed
+                        )
+                    }
+
                     // Test Message simulation button
                     IconButton(
                         onClick = { showSimulateDialog = true },
@@ -455,6 +470,13 @@ fun LedgerScreen(
                     showSimulateDialog = false
                 }
             }
+        )
+    }
+
+    // Workflow Guide Dialog (علاقة حب وسير العمل)
+    if (showWorkflowDialog) {
+        WorkflowGuideDialog(
+            onDismiss = { showWorkflowDialog = false }
         )
     }
 

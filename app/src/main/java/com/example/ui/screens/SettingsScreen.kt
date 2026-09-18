@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Security
@@ -70,6 +71,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.data.SyncUiState
 import com.example.model.TargetConfigEntity
+import com.example.ui.dialogs.WorkflowGuideDialog
 import com.example.ui.theme.CreditGreen
 import com.example.ui.theme.CreditGreenBg
 import com.example.ui.theme.DebitRed
@@ -110,6 +112,7 @@ fun SettingsScreen(
 
     var newSmsTarget by remember { mutableStateOf("") }
     var newWhatsAppTarget by remember { mutableStateOf("") }
+    var showWorkflowDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -386,8 +389,61 @@ fun SettingsScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // SECTION 4: Workflow Document & Philosophy
+            Text(
+                text = "4. ملف وميثاق سير العمل (علاقة حب)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = DebitRed
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "سير العمل وتناغم المنظومة المحاسبية:",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        text = "اطّلع على المخطط التدفقي الكامل لمسار الحوالات، من لحظة وصول الرسالة والفرز، وحتى القيد المحاسبي المزدوج والمزامنة السحابية.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = { showWorkflowDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Favorite, contentDescription = null, tint = DebitRed)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("عرض ملف ومخطط سير العمل الكامل", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showWorkflowDialog) {
+        WorkflowGuideDialog(onDismiss = { showWorkflowDialog = false })
     }
 }
 
